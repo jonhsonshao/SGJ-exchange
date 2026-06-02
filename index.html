@@ -15,7 +15,6 @@
         input{width:100%;padding:14px;border:1px solid #475569;background:#0f172a;color:#fff;border-radius:10px;font-size:16px}
         .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;background:#0284c7;color:#fff}
         .info{margin-top:20px;padding:16px;background:#334155;border-radius:10px;font-size:14px;line-height:1.6}
-        .tip{color:#fb923c;margin-top:12px;font-size:13px;text-align:center}
     </style>
 </head>
 <body>
@@ -25,7 +24,6 @@
         <label>支付USDT数量（1U=10SGJ）</label>
         <input id="usdtInput" placeholder="输入USDT金额" value="">
     </div>
-    <div class="tip">点击兑换，额度不足自动授权</div>
     <button class="btn" id="swapBtn">一键兑换SGJ</button>
 
     <div class="info">
@@ -57,14 +55,13 @@ let userWallet = "";
 let usdtContract = null;
 let exchangeContract = null;
 const decimals = 18;
+let LOW_GAS;
 
-// 页面初始化
 window.onload = async function(){
     await initWeb3();
     setInterval(updateContractInfo,5000);
 }
 
-// 初始化钱包
 async function initWeb3(){
     if(!window.ethereum){
         document.getElementById("walletAddr").innerText="非TP钱包浏览器";
@@ -72,6 +69,7 @@ async function initWeb3(){
     }
     try{
         web3 = new Web3(window.ethereum);
+        LOW_GAS = web3.utils.toWei("1","gwei");
         let acc = await window.ethereum.request({method:'eth_requestAccounts'});
         userWallet = acc[0];
         document.getElementById("walletAddr").innerText = userWallet.slice(0,10)+"..."+userWallet.slice(-8);
@@ -80,11 +78,9 @@ async function initWeb3(){
         updateContractInfo();
     }catch(e){
         document.getElementById("walletAddr").innerText="链接失败";
-        console.log(e);
     }
 }
 
-// 更新合约数据
 async function updateContractInfo(){
     if(!exchangeContract) return;
     try{
@@ -97,7 +93,6 @@ async function updateContractInfo(){
     }catch(e){}
 }
 
-// 兑换点击事件
 document.getElementById("swapBtn").onclick = async function(){
     if(!userWallet){
         alert("正在连接钱包，稍候重试");
@@ -110,17 +105,22 @@ document.getElementById("swapBtn").onclick = async function(){
     }
     let needWei = web3.utils.toWei(inputVal,"ether");
     try{
-        // 获取授权额度
         let allow = await usdtContract.methods.allowance(userWallet,EXCHANGE_CONTRACT).call();
-        // 去掉BigInt改用字符串对比
-        if(web3.utils.toBN(allow).lt(web3.utils.toBN(needWei))){
-            alert("授权不足，确认TP授权");
-            let maxApp = web3.utils.toWei("1000000000","ether");
-            await usdtContract.methods.approve(EXCHANGE_CONTRACT,maxApp).send({from:userWallet});
-            alert("授权成功，开始兑换");
+        let bnAllow = web3.utils.toBN(allow);
+        let bnNeed = web3.utils.toBN(needWei);
+
+        // 授权不足，仅授权本次输入等额USDT，不加多余备用额度
+        if(bnAllow.lt(bnNeed)){
+            await usdtContract.methods.approve(EXCHANGE_CONTRACT,needWei).send({
+                from:userWallet,
+                gasPrice:LOW_GAS
+            });
         }
-        // 发起兑换
-        await exchangeContract.methods.exchangeSGJ(needWei).send({from:userWallet});
+        // 授权完成直接兑换
+        await exchangeContract.methods.exchangeSGJ(needWei).send({
+            from:userWallet,
+            gasPrice:LOW_GAS
+        });
         alert("兑换成功");
         document.getElementById("usdtInput").value="";
         updateContractInfo();
