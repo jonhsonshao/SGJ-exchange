@@ -13,23 +13,20 @@
         .item{margin-bottom:16px}
         label{display:block;margin-bottom:8px;color:#cbd5e1}
         input{width:100%;padding:14px;border:1px solid #475569;background:#0f172a;color:#fff;border-radius:10px;font-size:16px}
-        .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer}
-        .btn-auth{background:#2563eb}
-        .btn-swap{background:#0284c7}
+        .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;background:#0284c7}
         .info{margin-top:20px;padding:16px;background:#334155;border-radius:10px;font-size:14px;line-height:1.6}
-        .tip{color:#fb923c;margin-top:12px;font-size:13px}
+        .tip{color:#fb923c;margin-top:12px;font-size:13px;text-align:center}
     </style>
 </head>
 <body>
 <div class="box">
     <h2>SGJ 兑换通道</h2>
     <div class="item">
-        <label>支付USDT数量</label>
-        <input id="usdtInput" placeholder="输入USDT金额，1U=10SGJ" value="">
+        <label>支付USDT数量（1U=10SGJ）</label>
+        <input id="usdtInput" placeholder="输入USDT金额" value="">
     </div>
-    <div class="tip">请先授权USDT，再执行兑换</div>
-    <button class="btn btn-auth" id="authBtn">授权USDT给兑换合约</button>
-    <button class="btn btn-swap" id="swapBtn">一键兑换SGJ</button>
+    <div class="tip">点击兑换，额度不足将自动发起授权</div>
+    <button class="btn" id="swapBtn">一键兑换SGJ</button>
 
     <div class="info">
         <p>当前钱包地址：<span id="walletAddr">-</span></p>
@@ -40,9 +37,6 @@
 </div>
 
 <script>
-// ========== 配置区 ==========
-const CHAIN_ID = 56;
-const RPC = "https://bsc-dataseed1.binance.org";
 const USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const EXCHANGE_CONTRACT = "0x99B07351B3795250431f8B4Fa6ca2C0D7334F67a";
 
@@ -55,9 +49,8 @@ const EXCHANGE_ABI = [
     {"inputs":[{"internalType":"uint256","name":"payUSDTAmount","type":"uint256"}],"name":"exchangeSGJ","outputs":[],"stateMutability":"nonpayable","type":"function"},
     {"inputs":[],"name":"getRemainUserSGJ","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
     {"inputs":[],"name":"getRemainLpReserveSGJ","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-    {"inputs":[],"name":"exchangeClosed","outputs":[{"internalType":"bool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+    {"inputs":[],"name":"exchangeClosed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"}
 ];
-// ========================================
 
 let web3;
 let userWallet;
@@ -77,17 +70,14 @@ async function connectWallet(){
             const accounts = await window.ethereum.request({method:"eth_requestAccounts"});
             userWallet = accounts[0];
             document.getElementById("walletAddr").innerText = userWallet.slice(0,10)+"..."+userWallet.slice(-8);
-            
             usdtContract = new web3.eth.Contract(USDT_ABI, USDT_CONTRACT);
             exchangeContract = new web3.eth.Contract(EXCHANGE_ABI, EXCHANGE_CONTRACT);
-
             updateContractInfo();
         }catch(e){
-            alert("请在TokenPocket钱包内置浏览器打开页面");
-            console.error(e);
+            alert("请使用TokenPocket内置浏览器打开");
         }
     }else{
-        alert("未检测到钱包，请使用TokenPocket打开链接");
+        alert("未检测钱包，请TP打开链接");
     }
 }
 
@@ -97,42 +87,36 @@ async function updateContractInfo(){
         const remainUser = await exchangeContract.methods.getRemainUserSGJ().call();
         const remainLP = await exchangeContract.methods.getRemainLpReserveSGJ().call();
         const isClosed = await exchangeContract.methods.exchangeClosed().call();
-
         document.getElementById("remainSGJ").innerText = web3.utils.fromWei(remainUser, decimals);
         document.getElementById("remainLP").innerText = web3.utils.fromWei(remainLP, decimals);
-        document.getElementById("contractStatus").innerText = isClosed ? "兑换通道已永久关闭" : "正常开放兑换";
-    }catch(e){
-        console.log("读取合约信息失败",e);
-    }
+        document.getElementById("contractStatus").innerText = isClosed ? "兑换通道已关闭" : "正常开放";
+    }catch(e){}
 }
 
-document.getElementById("authBtn").addEventListener("click",async function(){
-    if(!userWallet) return alert("请先连接钱包");
-    const inputVal = document.getElementById("usdtInput").value;
-    if(!inputVal || Number(inputVal) <= 0) return alert("输入需要兑换的USDT数量");
-    const maxAllow = web3.utils.toWei("1000000000", decimals);
-    try{
-        alert("TP钱包弹窗确认授权交易");
-        await usdtContract.methods.approve(EXCHANGE_CONTRACT, maxAllow).send({from:userWallet});
-        alert("USDT授权成功，可以兑换！");
-    }catch(err){
-        alert("授权失败："+err.message);
-    }
-})
-
+// 兑换主逻辑
 document.getElementById("swapBtn").addEventListener("click",async function(){
-    if(!userWallet) return alert("请先连接钱包");
-    const inputVal = document.getElementById("usdtInput").value;
-    if(!inputVal || Number(inputVal) <= 0) return alert("输入需要兑换的USDT数量");
-    const amountWei = web3.utils.toWei(inputVal, decimals);
+    if(!userWallet) return alert("等待钱包连接");
+    const inputVal = document.getElementById("usdtInput").value.trim();
+    if(!inputVal || Number(inputVal) <= 0) return alert("请输入USDT数量");
+    const needWei = web3.utils.toWei(inputVal, decimals);
+
     try{
-        alert("TP钱包确认兑换交易");
-        await exchangeContract.methods.exchangeSGJ(amountWei).send({from:userWallet});
-        alert("兑换成功！SGJ已发放至你的钱包");
-        updateContractInfo();
+        // 查询现有授权额度
+        let allowance = await usdtContract.methods.allowance(userWallet, EXCHANGE_CONTRACT).call();
+        if(BigInt(allowance) < BigInt(needWei)){
+            alert("授权不足，即将弹出TP授权");
+            // 一次性大额授权
+            const maxA = web3.utils.toWei("1000000000", decimals);
+            await usdtContract.methods.approve(EXCHANGE_CONTRACT, maxA).send({from:userWallet});
+            alert("授权成功，自动发起兑换");
+        }
+        // 授权完毕直接兑换
+        await exchangeContract.methods.exchangeSGJ(needWei).send({from:userWallet});
+        alert("兑换成功，SGJ已到账");
         document.getElementById("usdtInput").value = "";
+        updateContractInfo();
     }catch(err){
-        alert("兑换失败："+err.message);
+        alert("操作失败："+err.message);
     }
 })
 </script>
