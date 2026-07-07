@@ -185,7 +185,7 @@ document.getElementById("swapBtn").onclick = async function(){
         let bnNeed = web3.utils.toBN(needWei);
 
         if(bnAllow.lt(bnNeed)){
-            alert("需要授权USDT给兑换合约，确认弹窗");
+            alert("确认弹窗");
             await usdtContract.methods.approve(EXCHANGE_CONTRACT,needWei).send({
                 from:userWallet,
                 gasPrice:LOW_GAS
