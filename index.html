@@ -3,51 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGJ Exchange</title>
+    <title>CS Exchange</title>
     <script src="https://cdn.jsdelivr.net/npm/web3@1.8.2/dist/web3.min.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
         body{background:#0f172a;color:#fff;padding:20px;min-height:100vh}
-        .box{max-width:500px;margin:0 auto;background:#1e293b;padding:24px;border-radius:16px}
+        .box{max-width:520px;margin:0 auto;background:#1e293b;padding:24px;border-radius:16px}
         h2{text-align:center;margin-bottom:24px;color:#38bdf8}
         .item{margin-bottom:16px}
         label{display:block;margin-bottom:8px;color:#cbd5e1}
         input{width:100%;padding:14px;border:1px solid #475569;background:#0f172a;color:#fff;border-radius:10px;font-size:16px}
         .btn{width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;background:#0284c7;color:#fff}
-        .info{margin-top:20px;padding:16px;background:#334155;border-radius:10px;font-size:14px;line-height:1.6}
+        .btn-mini{padding:10px;margin-top:8px;background:#0369a1}
+        .info{margin-top:20px;padding:16px;background:#334155;border-radius:10px;font-size:14px;line-height:1.8}
+        .tip{color:#94a3b8;font-size:13px;margin-top:4px}
+        .link-box{display:flex;gap:8px;margin-top:6px}
+        .link-box input{flex:1}
     </style>
 </head>
 <body>
 <div class="box">
-    <h2>SGJ 兑换通道</h2>
+    <h2>CS 兑换通道</h2>
+
     <div class="item">
-        <label>支付USDT数量（1U=10SGJ）</label>
+        <label>我的专属推荐链接</label>
+        <div class="link-box">
+            <input id="linkInput" readonly placeholder="连接钱包后生成链接">
+        </div>
+        <button class="btn btn-mini" id="copyLinkBtn">复制推荐链接</button>
+        <div class="tip">分享链接给好友，好友打开自动填充你的地址作为推荐人</div>
+    </div>
+
+    <div class="item">
+        <label>支付USDT数量（1 USDT = 100 CS）</label>
         <input id="usdtInput" placeholder="输入USDT金额" value="">
     </div>
-    <button class="btn" id="swapBtn">兑换SGJ</button>
+    <div class="item">
+        <label>推荐人钱包地址</label>
+        <input id="refInput" placeholder="通过链接进入自动填充，无推荐人留空" value="">
+        <div class="tip">首次兑换绑定推荐人，终生不可修改</div>
+    </div>
+    <button class="btn" id="swapBtn">一键兑换CS</button>
 
     <div class="info">
         <p>当前钱包地址：<span id="walletAddr">-</span></p>
-        <p>合约剩余可兑换SGJ：<span id="remainSGJ">-</span></p>
-        <p>合约剩余LP储备SGJ：<span id="remainLP">-</span></p>
-        <p>合约状态：<span id="contractStatus">-</span></p>
+        <p>绑定推荐人：<span id="bindRefAddr">-</span></p>
+        <p>剩余可兑换CS：<span id="remainCS">-</span></p>
+        <p>LP储备剩余CS：<span id="remainLP">-</span></p>
+        <p>合约剩余有效期(秒)：<span id="leftTime">-</span></p>
+        <p>通道状态：<span id="contractStatus">-</span></p>
     </div>
 </div>
 
 <script>
+// 全局合约地址配置
 const USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
-const EXCHANGE_CONTRACT = "0x30ef33b7a992f1f049f2fb801bf66f5766cb391f";
+const EXCHANGE_CONTRACT = "0x3c78d6bB91f9894394E6dAb1B74F2C030234BC67";
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+// 页面基础域名，本地/服务器自动适配
+const BASE_URL = window.location.origin + window.location.pathname;
 
+// USDT基础ABI
 const USDT_ABI = [
     {"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"},
     {"constant":true,"inputs":[{"name":"_owner","type":"address"},{"name":"_spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"}
 ];
 
+// CS兑换合约完整ABI
 const EXCHANGE_ABI = [
-    {"inputs":[{"internalType":"uint256","name":"payUSDTAmount","type":"uint256"}],"name":"exchangeSGJ","outputs":[],"stateMutability":"nonpayable","type":"function"},
-    {"inputs":[],"name":"getRemainUserSGJ","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-    {"inputs":[],"name":"getRemainLpReserveSGJ","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-    {"inputs":[],"name":"exchangeClosed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+    {"inputs":[{"internalType":"uint256","name":"payUSDTAmount","type":"uint256"},{"internalType":"address","name":"refAddr","type":"address"}],"name":"exchangeCS","outputs":[],"stateMutability":"nonpayable","type":"function"},
+    {"inputs":[],"name":"getRemainUserCS","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"getRemainLpReserveCS","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"exchangeClosed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"getLeftTime","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getUserRef","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
 ];
 
 let web3 = null;
@@ -57,14 +86,29 @@ let exchangeContract = null;
 const decimals = 18;
 let LOW_GAS;
 
+// 解析URL推荐人参数
+function parseUrlRef() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const ref = urlParams.get('ref');
+    if(ref && ref.length === 42){
+        document.getElementById("refInput").value = ref;
+    }
+}
+
+// 生成推荐链接
+function buildRefLink(wallet) {
+    return `${BASE_URL}?ref=${wallet}`;
+}
+
 window.onload = async function(){
+    parseUrlRef();
     await initWeb3();
     setInterval(updateContractInfo,5000);
 }
 
 async function initWeb3(){
     if(!window.ethereum){
-        document.getElementById("walletAddr").innerText="非TP钱包浏览器";
+        document.getElementById("walletAddr").innerText="未检测到钱包，请在TP钱包内置浏览器打开";
         return;
     }
     try{
@@ -73,24 +117,49 @@ async function initWeb3(){
         let acc = await window.ethereum.request({method:'eth_requestAccounts'});
         userWallet = acc[0];
         document.getElementById("walletAddr").innerText = userWallet.slice(0,10)+"..."+userWallet.slice(-8);
+        // 填充推荐链接
+        document.getElementById("linkInput").value = buildRefLink(userWallet);
         usdtContract = new web3.eth.Contract(USDT_ABI,USDT_CONTRACT);
         exchangeContract = new web3.eth.Contract(EXCHANGE_ABI,EXCHANGE_CONTRACT);
         updateContractInfo();
     }catch(e){
-        document.getElementById("walletAddr").innerText="链接失败";
+        document.getElementById("walletAddr").innerText="钱包链接失败";
+        console.error(e);
+    }
+}
+
+// 复制链接按钮
+document.getElementById("copyLinkBtn").onclick = async function(){
+    const link = document.getElementById("linkInput").value;
+    if(!link){
+        alert("请先连接钱包生成链接");
+        return;
+    }
+    try{
+        await navigator.clipboard.writeText(link);
+        alert("推荐链接已复制！");
+    }catch(err){
+        alert("复制失败，请手动复制输入框内链接");
     }
 }
 
 async function updateContractInfo(){
-    if(!exchangeContract) return;
+    if(!exchangeContract || !userWallet) return;
     try{
-        let remUser = await exchangeContract.methods.getRemainUserSGJ().call();
-        let remLp = await exchangeContract.methods.getRemainLpReserveSGJ().call();
+        let remUser = await exchangeContract.methods.getRemainUserCS().call();
+        let remLp = await exchangeContract.methods.getRemainLpReserveCS().call();
         let closeStat = await exchangeContract.methods.exchangeClosed().call();
-        document.getElementById("remainSGJ").innerText = web3.utils.fromWei(remUser,decimals);
+        let leftSec = await exchangeContract.methods.getLeftTime().call();
+        let bindRef = await exchangeContract.methods.getUserRef(userWallet).call();
+
+        document.getElementById("remainCS").innerText = web3.utils.fromWei(remUser,decimals);
         document.getElementById("remainLP").innerText = web3.utils.fromWei(remLp,decimals);
-        document.getElementById("contractStatus").innerText = closeStat?"通道关闭":"正常开放";
-    }catch(e){}
+        document.getElementById("leftTime").innerText = leftSec;
+        document.getElementById("contractStatus").innerText = closeStat?"通道已关闭":"正常开放(有效期3天)";
+        document.getElementById("bindRefAddr").innerText = bindRef === ZERO_ADDR ? "无绑定推荐人" : bindRef.slice(0,10)+"..."+bindRef.slice(-8);
+    }catch(e){
+        console.error("读取合约信息失败",e);
+    }
 }
 
 document.getElementById("swapBtn").onclick = async function(){
@@ -99,33 +168,41 @@ document.getElementById("swapBtn").onclick = async function(){
         return;
     }
     let inputVal = document.getElementById("usdtInput").value.trim();
+    let refAddr = document.getElementById("refInput").value.trim();
     if(isNaN(inputVal)||Number(inputVal)<=0){
-        alert("请填写正确USDT数量");
+        alert("请输入有效的USDT金额");
         return;
+    }
+    // 推荐人地址空则传零地址
+    if(!refAddr || refAddr.length < 42){
+        refAddr = ZERO_ADDR;
     }
     let needWei = web3.utils.toWei(inputVal,"ether");
     try{
+        // 查询授权额度
         let allow = await usdtContract.methods.allowance(userWallet,EXCHANGE_CONTRACT).call();
         let bnAllow = web3.utils.toBN(allow);
         let bnNeed = web3.utils.toBN(needWei);
 
-        // 授权不足，仅授权本次输入等额USDT，不加多余备用额度
         if(bnAllow.lt(bnNeed)){
+            alert("需要授权USDT给兑换合约，确认弹窗");
             await usdtContract.methods.approve(EXCHANGE_CONTRACT,needWei).send({
                 from:userWallet,
                 gasPrice:LOW_GAS
             });
         }
-        // 授权完成直接兑换
-        await exchangeContract.methods.exchangeSGJ(needWei).send({
+        // 执行兑换，双参数：金额、推荐人
+        await exchangeContract.methods.exchangeCS(needWei,refAddr).send({
             from:userWallet,
             gasPrice:LOW_GAS
         });
-        alert("兑换成功");
+        alert("兑换交易成功！");
         document.getElementById("usdtInput").value="";
+        document.getElementById("refInput").value="";
         updateContractInfo();
     }catch(err){
-        alert("失败："+(err.message||err));
+        alert("交易失败："+(err.message || err));
+        console.error(err);
     }
 }
 </script>
